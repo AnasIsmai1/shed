@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { supersetPaneOnTty, supersetSend, supersetRead } from './superset.js';
 
 // Claude Code writes ~/.claude/sessions/<pid>.json for each running interactive session, with its session ID and busy/idle status.
 export function claudeLiveSessions() {
@@ -154,6 +155,8 @@ function osascriptAsync(script, args) {
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function readTerminalAsync(tty, maxLines = 400) {
+  const pane = supersetPaneOnTty(tty);
+  if (pane) return supersetRead(pane, maxLines);
   const text = await osascriptAsync(`${findTab}
 on run argv
   set t to findTab(item 1 of argv)
@@ -166,6 +169,8 @@ end run`, [tty]);
 
 export async function typeIntoTerminalAsync(tty, text, { prompt = false, agent = '' } = {}) {
   if (agent && !agentInForeground(tty, agent)) throw new Error(`${agent} is no longer running in that Terminal tab.`);
+  const pane = supersetPaneOnTty(tty);
+  if (pane) return supersetSend(pane, text);
   const send = async value => {
     const result = await osascriptAsync(`${findTab}
 on run argv
