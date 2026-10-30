@@ -39,10 +39,11 @@ function run(args) {
 }
 const target = ({ workspace, terminal }) => ['--local', '--workspace', workspace, '--terminal', terminal];
 
-// Empty text means "press Enter"; anything else is typed and submitted, as Terminal.app's `do script` does.
-export function supersetSend(pane, text) {
-  return run(['terminals', 'send', ...target(pane), ...(text ? [`--text=${text}`] : ['--keys', 'enter'])]);
+// Empty text means "press Enter"; anything else is typed, and submitted unless `submit` is false.
+export function supersetSend(pane, text, { submit = true } = {}) {
+  return run(['terminals', 'send', ...target(pane), ...(text ? [`--text=${text}`, ...(submit ? [] : ['--no-submit'])] : ['--keys', 'enter'])]);
 }
+export function supersetKeys(pane, keys) { return run(['terminals', 'send', ...target(pane), '--keys', keys]); }
 export async function supersetRead(pane, maxLines = 400) {
   const out = await run(['terminals', 'read', ...target(pane)]);
   return out.replace(/\s+$/, '').split('\n').slice(-maxLines).join('\n');

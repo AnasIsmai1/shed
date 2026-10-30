@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { supersetPaneOnTty, supersetSend, supersetRead } from './superset.js';
+import { supersetPaneOnTty, supersetSend, supersetKeys, supersetRead } from './superset.js';
 
 // Claude Code writes ~/.claude/sessions/<pid>.json for each running interactive session, with its session ID and busy/idle status.
 export function claudeLiveSessions() {
@@ -167,10 +167,23 @@ end run`, [tty]);
   return text.replace(/\s+$/, '').split('\n').slice(-maxLines).join('\n');
 }
 
+// Same safety as the Terminal.app path: stage the text (as a bracketed paste for prompts), re-check the agent still holds
+// the pane, and only then press Enter. If it exited, Enter would run the text in the shell, so the line is cleared instead.
+export async function typeIntoSuperset(pane, tty, text, { prompt = false, agent = '' } = {}) {
+  if (!text) return supersetSend(pane, '');
+  await supersetSend(pane, prompt ? `\u001b[200~${text}\u001b[201~` : text, { submit: false });
+  await pause(prompt ? 600 : 100);
+  if (agent && !agentInForeground(tty, agent)) {
+    await supersetKeys(pane, 'ctrl+u').catch(() => {});
+    throw new Error(`${agent} exited while the message was being typed.`);
+  }
+  return supersetSend(pane, '');
+}
+
 export async function typeIntoTerminalAsync(tty, text, { prompt = false, agent = '' } = {}) {
   if (agent && !agentInForeground(tty, agent)) throw new Error(`${agent} is no longer running in that Terminal tab.`);
   const pane = supersetPaneOnTty(tty);
-  if (pane) return supersetSend(pane, text);
+  if (pane) return typeIntoSuperset(pane, tty, text, { prompt, agent });
   const send = async value => {
     const result = await osascriptAsync(`${findTab}
 on run argv
