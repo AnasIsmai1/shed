@@ -59,9 +59,10 @@ async function probe(name) {
     return auth.ok && /\b[1-9]\d* credentials?\b/i.test(output) ? result(true, 'ready', 'CLI responds; provider credentials are configured') : result(true, 'needs_auth', 'Connect a provider on the Mac');
   }
   if (name === 'claude') {
-    const auth = await run(name, ['auth', 'status']);
+    // SHED_CLAUDE_VIA_ZSH=1: ask the user's zsh, so its `claude` function picks the account token a LaunchAgent cannot see.
+    const auth = process.env.SHED_CLAUDE_VIA_ZSH === '1' ? await run('zsh', ['-ic', 'claude auth status'], 15000) : await run(name, ['auth', 'status']);
     let loggedIn = false;
-    try { loggedIn = JSON.parse(auth.output).loggedIn === true; } catch { loggedIn = /logged in/i.test(auth.output); }
+    try { loggedIn = JSON.parse(auth.output).loggedIn === true; } catch { loggedIn = /"loggedIn"\s*:\s*true|logged in/i.test(auth.output); }
     return auth.ok && loggedIn ? result(true, 'ready', 'CLI responds; Claude login is active') : result(true, 'needs_auth', 'Sign in to Claude Code from the Mac');
   }
   if (name === 'pi') {
