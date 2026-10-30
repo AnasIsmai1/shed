@@ -1,3 +1,4 @@
+import './env.js';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,6 +35,7 @@ const tokenFile = path.join(root, '.laya-token');
 const legacyTokenFile = path.join(root, '.jev-token');
 const port = Number(process.env.PORT || 4378);
 const tailscaleMode = process.env.SHED_TUNNEL === 'tailscale';
+const defaultHarness = ['codex', 'claude', 'gemini', 'pi', 'opencode'].includes(process.env.SHED_DEFAULT_HARNESS) ? process.env.SHED_DEFAULT_HARNESS : '';
 // Only the Mac itself (and the https tunnel, which connects locally) can reach Shed unless Wi-Fi access is turned on.
 // Wi-Fi access is plain http, so passwords and cookies would cross the network unencrypted.
 const lanEnabled = process.env.SHED_LAN === '1';
@@ -1070,7 +1072,7 @@ const server = http.createServer(async (req, res) => {
       const svg = await QRCode.toString(url, { type:'svg', margin:1, errorCorrectionLevel:'M', color:{ dark:'#1e1c19', light:'#fffdf8' } });
       return send(res, 200, { url, link:base, secure:Boolean(remoteUrl()), qr:svg, phoneConnectedAt:settings.phoneConnectedAt || null });
     }
-    if (pathname === '/api/me' && req.method === 'GET') return send(res, 200, { ok:true, local:isLocalRequest(req), lanEnabled, pendingDevices:isLocalRequest(req) ? devices().filter(d => d.status === 'pending' && Date.now() - Date.parse(d.createdAt) < 86400000).map(d => publicDevice(d)) : [], phoneConnectedAt:settings.phoneConnectedAt || null, available, laya:layaStatus(), hostname:os.hostname(), phoneUrl:lanEnabled ? `http://${lanAddress()}:${port}` : '', remoteUrl:remoteUrl() });
+    if (pathname === '/api/me' && req.method === 'GET') return send(res, 200, { ok:true, defaultHarness, local:isLocalRequest(req), lanEnabled, pendingDevices:isLocalRequest(req) ? devices().filter(d => d.status === 'pending' && Date.now() - Date.parse(d.createdAt) < 86400000).map(d => publicDevice(d)) : [], phoneConnectedAt:settings.phoneConnectedAt || null, available, laya:layaStatus(), hostname:os.hostname(), phoneUrl:lanEnabled ? `http://${lanAddress()}:${port}` : '', remoteUrl:remoteUrl() });
     // Shed Pro (a permanent address). Turning it on or off changes the address phones use, so only the Mac can do it.
     if (pathname === '/api/pro' && req.method === 'GET') return send(res, 200, { ...pro.status(), canChange:isLocalRequest(req) });
     if ((pathname === '/api/pro/activate' || pathname === '/api/pro/deactivate') && req.method === 'POST') {
