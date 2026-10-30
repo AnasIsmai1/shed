@@ -1,6 +1,7 @@
 #!/bin/sh
 # Shed installer: curl -fsSL https://shed-sigma.vercel.app/install.sh | sh
-# Installs Shed into ~/.shed/app, runs it (and its https tunnel) as two background services that start at login,
+# Installs Shed into ~/.shed/app, runs it (and its https tunnel) as two background services that start at login
+# (SHED_TUNNEL=tailscale: just the server, published by your own Tailscale setup),
 # then opens it in your browser. Run again to update. Uninstall: curl -fsSL …/install.sh | sh -s -- --uninstall
 set -eu
 
@@ -10,12 +11,14 @@ REPO="${SHED_REPO:-https://github.com/IAmUnbounded/shed.git}"
 REF="${SHED_REF:-main}"
 PORT="${SHED_PORT:-4378}"
 LABEL="${SHED_LABEL:-dev.shed}"
+TUNNEL="${SHED_TUNNEL:-cloudflared}"
 AGENTS="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 say() { printf '  %s\n' "$1"; }
 die() { printf '\033[31mShed: %s\033[0m\n' "$1" >&2; exit 1; }
+[ "$TUNNEL" = cloudflared ] || [ "$TUNNEL" = tailscale ] || die "SHED_TUNNEL must be cloudflared or tailscale."
 
 stop_services() {
   for name in server tunnel; do
@@ -38,7 +41,7 @@ fi
 bold "Installing Shed"
 [ "$(uname -s)" = "Darwin" ] || die "Shed runs on macOS: it drives agent sessions in Terminal.app."
 
-# Tools: git, Node 20+, cloudflared. Homebrew installs the missing ones when it is available.
+# Tools: git, Node 20+, cloudflared (not needed with SHED_TUNNEL=tailscale). Homebrew installs the missing ones when it is available.
 need_brew() {
   command -v brew >/dev/null 2>&1 || die "$1 is missing. Install Homebrew (https://brew.sh) or $1, then run this again."
   say "Installing $1 with Homebrew…"
@@ -48,13 +51,18 @@ command -v git >/dev/null 2>&1 || die "git is missing. Run: xcode-select --insta
 if ! command -v node >/dev/null 2>&1; then need_brew "Node.js" node; fi
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$NODE_MAJOR" -ge 20 ] || die "Shed needs Node 20 or newer (found $(node -v)). Update it with: brew upgrade node"
-if ! command -v cloudflared >/dev/null 2>&1; then need_brew "cloudflared" cloudflared; fi
+if [ "$TUNNEL" = cloudflared ] && ! command -v cloudflared >/dev/null 2>&1; then need_brew "cloudflared" cloudflared; fi
 NODE="$(command -v node)"
-CLOUDFLARED="$(command -v cloudflared)"
+CF_ENV=""; TS_ENV=""
+if [ "$TUNNEL" = cloudflared ]; then
+  CF_ENV="<key>CLOUDFLARED</key><string>$(command -v cloudflared)</string>"
+else
+  TS_ENV="<key>SHED_TUNNEL</key><string>tailscale</string>"
+fi
 
 found=""
 for agent in claude codex gemini opencode pi; do command -v "$agent" >/dev/null 2>&1 && found="$found $agent"; done
-[ -n "$found" ] && say "Found agents:$found" || say "No coding agents found yet. Install Claude Code or Codex and Shed picks them up."
+if [ -n "$found" ]; then say "Found agents:$found"; else say "No coding agents found yet. Install Claude Code or Codex and Shed picks them up."; fi
 
 # The code: a shallow clone, updated in place on later runs (your settings live in the ignored .jev-data folder).
 mkdir -p "$SHED_HOME"
@@ -89,7 +97,7 @@ plist() {
     <key>HOME</key><string>$HOME</string>
     <key>PATH</key><string>$HOME/.local/bin:$PATH</string>
     <key>PORT</key><string>$PORT</string>
-    <key>CLOUDFLARED</key><string>$CLOUDFLARED</string>
+    $CF_ENV$TS_ENV
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -101,9 +109,13 @@ PLIST
 }
 mkdir -p "$APP/.jev-data" && chmod 700 "$APP/.jev-data"
 plist server index.js
-plist tunnel tunnel.js
 launchctl bootstrap "$DOMAIN" "$AGENTS/$LABEL.server.plist"
-launchctl bootstrap "$DOMAIN" "$AGENTS/$LABEL.tunnel.plist"
+if [ "$TUNNEL" = cloudflared ]; then
+  plist tunnel tunnel.js
+  launchctl bootstrap "$DOMAIN" "$AGENTS/$LABEL.tunnel.plist"
+else
+  rm -f "$AGENTS/$LABEL.tunnel.plist"
+fi
 
 say "Starting…"
 i=0
@@ -115,7 +127,13 @@ done
 
 bold "Shed is running at http://localhost:$PORT"
 say "1. Set a password in the browser window that just opened."
-say "2. Scan the QR code with your phone and add Shed to your Home Screen."
+if [ "$TUNNEL" = tailscale ]; then
+  say "2. Run this yourself to publish Shed to your tailnet only: tailscale serve --bg $PORT"
+  say "Never use tailscale funnel: that puts Shed on the public internet."
+  say "3. Scan the QR code with your phone and add Shed to your Home Screen."
+else
+  say "2. Scan the QR code with your phone and add Shed to your Home Screen."
+fi
 say "The first launch downloads the Laya routing model (about 1.7 GB) in the background."
 say "macOS will ask once to let Shed control Terminal. Allow it, so agents run in windows you can watch."
 [ "${SHED_NO_OPEN:-}" = "1" ] || open "http://localhost:$PORT"

@@ -21,6 +21,7 @@ import { proStore } from './pro.js';
 import { interruptCodexThread } from './codex-app.js';
 import { uploadStore, attachmentNote, UPLOAD_ID } from './uploads.js';
 import { parseMenu, keysToChoose } from './menu.js';
+import { tailscaleUrl } from './tailscale.js';
 import { extractUrl, fetchShared, sharePrompt, signedShortcut } from './share.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -32,6 +33,7 @@ const remoteUrlFile = path.join(dataDir, 'remote-url');
 const tokenFile = path.join(root, '.laya-token');
 const legacyTokenFile = path.join(root, '.jev-token');
 const port = Number(process.env.PORT || 4378);
+const tailscaleMode = process.env.SHED_TUNNEL === 'tailscale';
 // Only the Mac itself (and the https tunnel, which connects locally) can reach Shed unless Wi-Fi access is turned on.
 // Wi-Fi access is plain http, so passwords and cookies would cross the network unencrypted.
 const lanEnabled = process.env.SHED_LAN === '1';
@@ -66,6 +68,7 @@ function getToken() {
   return value;
 }
 function remoteUrl() {
+  if (tailscaleMode) return tailscaleUrl(port);
   try {
     const value = fs.readFileSync(remoteUrlFile, 'utf8').trim();
     // A Quick Tunnel address, or the permanent Shed Pro hostname; tunnel.js writes it once the tunnel is connected.
@@ -111,14 +114,23 @@ function verifyPassword(password, stored) {
   } catch { return false; }
 }
 const LOOPBACK = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
-const PROXY_HEADERS = ['cf-connecting-ip', 'cf-ray', 'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'forwarded'];
+const PROXY_HEADERS = ['cf-connecting-ip', 'cf-ray', 'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'forwarded',
+  'tailscale-user-login', 'tailscale-user-name', 'tailscale-user-profile-pic', 'tailscale-app-capabilities'];
 // A request typed on this Mac: loopback, and not relayed by the tunnel (which also connects over loopback).
 function isDirectLocal(req) {
-  return LOOPBACK.includes(req.socket.remoteAddress) && !PROXY_HEADERS.some(h => req.headers[h] !== undefined);
+  return LOOPBACK.includes(req.socket.remoteAddress) && !PROXY_HEADERS.some(h => req.headers[h] !== undefined)
+    && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(req.headers.host || '');
 }
-// The visitor's real address: cloudflared connects locally and reports the original one in CF-Connecting-IP.
+// The visitor's real address: cloudflared or tailscale serve connect locally and report it in CF-Connecting-IP / X-Forwarded-For.
 function clientIp(req) {
-  if (LOOPBACK.includes(req.socket.remoteAddress) && typeof req.headers['cf-connecting-ip'] === 'string') return req.headers['cf-connecting-ip'].slice(0, 64);
+  if (LOOPBACK.includes(req.socket.remoteAddress)) {
+    const h = req.headers;
+    // cf-connecting-ip is set by Cloudflare; XFF's first entry is client-chosen, so use the last (the proxy's own).
+    const fwd = typeof h['x-forwarded-for'] === 'string' ? h['x-forwarded-for'].split(',').pop().trim() : '';
+    const cf = typeof h['cf-connecting-ip'] === 'string' ? h['cf-connecting-ip'].trim() : '';
+    const ip = tailscaleMode ? fwd : (cf || fwd);
+    if (ip) return ip.slice(0, 64);
+  }
   return req.socket.remoteAddress || 'unknown';
 }
 function isLocalRequest(req) {
@@ -128,6 +140,10 @@ function isLocalRequest(req) {
   try {
     return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
   } catch { return false; }
+}
+function isHttps(req) {
+  return Boolean(req.socket.encrypted) || req.headers['x-forwarded-proto'] === 'https'
+    || (tailscaleMode && LOOPBACK.includes(req.socket.remoteAddress) && !isDirectLocal(req));
 }
 function saveSettings() {
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode:0o600 });
@@ -481,7 +497,7 @@ function createDevice(req, status) {
   return { device, key };
 }
 function sessionCookie(req, key, maxAge = SESSION_IDLE_MS / 1000) {
-  const secure = req.headers['x-forwarded-proto'] === 'https' || req.socket.encrypted;
+  const secure = isHttps(req);
   return `shed_session=${key}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
 }
 function deviceFor(req) {
@@ -910,7 +926,7 @@ async function runShare({ url, text, note }) {
 // The address the Shortcut posts to: the one this phone reached Shed on, or the tunnel when asked from the Mac.
 function publicBase(req) {
   const host = String(req.headers.host || '');
-  if (req.headers['x-forwarded-proto'] === 'https' && /^[\w.-]+(:\d+)?$/.test(host) && !isDirectLocal(req)) return `https://${host}`;
+  if (isHttps(req) && /^[\w.-]+(:\d+)?$/.test(host) && !isDirectLocal(req)) return `https://${host}`;
   return remoteUrl() || '';
 }
 

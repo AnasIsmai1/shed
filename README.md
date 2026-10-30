@@ -22,13 +22,23 @@ macOS only. The [installer](site/install.sh) clones Shed into `~/.shed/app` and 
 curl -fsSL https://shed-sigma.vercel.app/install.sh | sh -s -- --uninstall
 ```
 
-Options (environment variables): `SHED_HOME` (default `~/.shed`), `SHED_PORT` (default 4378), `SHED_REF` (git branch, default `main`).
+Options (environment variables): `SHED_HOME` (default `~/.shed`), `SHED_PORT` (default 4378), `SHED_REF` (git branch, default `main`), `SHED_TUNNEL` (`cloudflared` by default, or `tailscale`).
 
 ## Shed Pro
 
 The free tunnel's address changes whenever it restarts, which breaks the Home Screen app and its push notifications. Shed Pro will give the Mac a permanent `https://<name>.shed.link` address. It isn't on sale yet: [join the waitlist](https://shed-sigma.vercel.app/#pro) to hear when it is.
 
 Once you have a licence key, turn it on by pasting it under **Settings → Permanent address** on the Mac. Shed asks the relay (`site/api/relay.js`) for a Cloudflare named tunnel and saves its token in `.jev-data/relay.json`. `server/tunnel.js` then switches from the Quick Tunnel to that tunnel. Traffic goes from Cloudflare straight to your Mac; the relay only manages the tunnel, and your password and device approval still apply.
+
+## Tailscale (tailnet only)
+
+Opt in with `SHED_TUNNEL=tailscale`, on the installer (`curl ... | SHED_TUNNEL=tailscale sh`) or in the server's environment. There is no cloudflared and no tunnel service; if you installed the tunnel service another way, remove its launch agent by hand.
+
+- Run `tailscale serve --bg 4378` yourself. The installer only prints it.
+- The phone address is the `https://<host>.ts.net` that `tailscale serve status` reports, shown only while it proxies to Shed's port and Tailscale is running.
+- Tailnet only: never run `tailscale funnel`. Shed shows no address while Funnel is on.
+- Anyone on your tailnet can reach the login page, so your password plus device approval on the Mac are the only gates.
+- Shed only ever runs `tailscale status --json` and `tailscale serve status --json`. Set `TAILSCALE` to override the CLI path. Results are cached for 30 seconds.
 
 ## Open it
 
@@ -87,10 +97,10 @@ Tasks follow the session transcript and finish when Claude goes idle or Codex re
 
 Anyone who can reach your agents can run code on your Mac, so Shed needs both your password and a device you approved.
 
-- **Only the secure link reaches Shed.** Shed listens on this Mac only; phones connect through the https tunnel. Plain-http access over Wi-Fi is off unless you start Shed with `SHED_LAN=1`.
+- **Only the secure link reaches Shed.** Shed listens on this Mac only; phones connect through the https tunnel (or `tailscale serve`), and a request only counts as the Mac itself with a `localhost` Host header and no proxy headers. Plain-http access over Wi-Fi is off unless you start Shed with `SHED_LAN=1`.
 - **Every device is approved on the Mac.** A sign-in from outside the Mac waits until you click **Approve** on the Mac, and your other devices get a notification about it. Scanning the QR code on the Mac skips the wait: it carries a one-time pairing code that expires after 10 minutes. Approving is only possible on the Mac, so a stolen phone session cannot let in more devices.
 - **Each device has its own key.** Sign-ins get a random session key, stored only as a hash and expired after 30 idle days. **Settings → Devices** lists every device, with **Sign out** for each and **Sign out all other devices**.
-- **Sign-in attempts are limited** per visitor (using Cloudflare's report of the real address) and in total per hour. After 20 failures in an hour, you get a notification.
+- **Sign-in attempts are limited** per visitor (using the real address reported by Cloudflare or `tailscale serve`) and in total per hour. After 20 failures in an hour, you get a notification.
 - **Terminals only receive what they should.** Session controls accept only Stop, Mode, 1, 2, 3 and Enter, and only while the agent is running. Sign-in windows accept typing only while the login program runs. Messages are typed only while the agent is the window's foreground program.
 - **The page cannot be framed** (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), scripts only load from Shed itself, and no referrer is sent.
 

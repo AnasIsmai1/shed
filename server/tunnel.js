@@ -3,6 +3,8 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+if (process.env.SHED_TUNNEL === 'tailscale') { console.log('SHED_TUNNEL=tailscale: Shed uses `tailscale serve`, so there is no tunnel to run.'); process.exit(0); }
+
 // Gives Shed its https address. Free: a Cloudflare Quick Tunnel, whose random URL changes when it restarts.
 // Shed Pro: a named tunnel on the Shed relay, so the address (and phone push subscriptions) never change.
 // The relay settings live in relay.json, written by the server; this process restarts the tunnel when that file changes.
