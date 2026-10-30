@@ -27,6 +27,8 @@ export function getLaya() {
 }
 
 async function askChoice(state, name, instructions, criteria, options = {}) {
+  // Still downloading or loading: start it in the background and let the caller fall back to local matching.
+  if (!options.engine && !options.wait && engineState !== 'ready') { getLaya().catch(() => {}); throw new Error('the model is still loading'); }
   const engine = options.engine || await getLaya();
   const data = await engine.systemOne(state, { [name]:{ type:'choice', instructions, criteria } });
   const answer = data.answers?.[name];
@@ -127,7 +129,7 @@ export async function decideModel(prompt, harness, config, options = {}) {
 }
 
 export async function probeLaya(options = {}) {
-  const result = await askChoice({ message:'Connection check from Shed.' }, 'connection', 'Choose ready to confirm the local model is working.', { ready:'The model is working.', unavailable:'The model is not working.' }, options);
+  const result = await askChoice({ message:'Connection check from Shed.' }, 'connection', 'Choose ready to confirm the local model is working.', { ready:'The model is working.', unavailable:'The model is not working.' }, { wait:true, ...options });
   if (result.choice !== 'ready') throw new Error('Laya did not confirm the connection.');
   return { ok:true, model:result.model, local:true };
 }
