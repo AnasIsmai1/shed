@@ -193,6 +193,7 @@ export function discoverSessions() {
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 
+// The conversation view keeps short user messages ("ok", "copy"); only the title and summary pickers skip them.
 export function sessionMessages(session) {
   const file = session.file;
   if (session.harness === 'opencode') {
@@ -213,11 +214,11 @@ export function sessionMessages(session) {
   for (const row of rows) {
     if (session.harness === 'codex' && row.type === 'response_item' && row.payload?.type === 'message' && ['user', 'assistant'].includes(row.payload.role)) {
       const text = displayText(contentText(row.payload.content));
-      if (text && !(row.payload.role === 'user' && !isUsefulPrompt(text))) messages.push({ role: row.payload.role, text, at: row.timestamp });
+      if (text && !(row.payload.role === 'user' && !isUsefulPrompt(text, 0))) messages.push({ role: row.payload.role, text, at: row.timestamp });
     }
     if (session.harness === 'claude' && ['user', 'assistant'].includes(row.type) && !row.isSidechain) {
       const raw = contentText(row.message?.content), text = displayText(raw);
-      if (text && !(row.type === 'user' && !isUsefulPrompt(raw))) messages.push({ role: row.type, text, at: row.timestamp });
+      if (text && !(row.type === 'user' && !isUsefulPrompt(raw, 0))) messages.push({ role: row.type, text, at: row.timestamp });
     }
     if (session.harness === 'pi' && row.type === 'message' && ['user', 'assistant'].includes(row.message?.role)) {
       const text = displayText(contentText(row.message.content));

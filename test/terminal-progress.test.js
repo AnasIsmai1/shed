@@ -28,3 +28,18 @@ test('a different message is not matched', () => {
   const { file, createdAt } = transcript('hello?');
   assert.equal(claudeTerminalProgress({ id: 't-other', transcriptFile: file, createdAt, prompt: 'copy', transcriptOffset: 0 }).found, false);
 });
+
+import { sessionMessages } from '../server/sessions.js';
+
+test('the conversation view keeps short user messages and still hides slash-command rows', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'shed-view-')), 's.jsonl');
+  const rows = [
+    { type: 'user', message: { role: 'user', content: 'hi' } },
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Hello.' }] } },
+    { type: 'user', message: { role: 'user', content: '<command-name>/clear</command-name>' } },
+    { type: 'user', message: { role: 'user', content: 'a longer message than eight characters' } },
+  ];
+  fs.writeFileSync(file, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+  const shown = sessionMessages({ harness: 'claude', file }).map(m => `${m.role}:${m.text}`);
+  assert.deepEqual(shown, ['user:hi', 'assistant:Hello.', 'user:a longer message than eight characters']);
+});
