@@ -65,11 +65,11 @@ function contentText(content) {
   return content.filter(c => c?.type !== 'tool_result').map(c => typeof c === 'string' ? c : c.text || c.content || '').filter(x => typeof x === 'string' && x).join('\n\n');
 }
 
-function isUsefulPrompt(text) {
+function isUsefulPrompt(text, minLength = 8) {
   const value = clean(text, 1000);
   // Claude Code writes slash commands, their output and system reminders as user rows; check the raw text since clean() strips the tags.
   if (/^\s*<(command-name|command-message|local-command-stdout|local-command-caveat|system-reminder)>/i.test(String(text || ''))) return false;
-  return value.length > 8 && !/^(# AGENTS\.md instructions|<environment_context>|<permissions instructions>|You are Codex,)/i.test(value);
+  return value.length > minLength && !/^(# AGENTS\.md instructions|<environment_context>|<permissions instructions>|You are Codex,)/i.test(value);
 }
 
 // Transcripts record the model on each turn; the last one in the tail is what a resume will continue with.
@@ -294,7 +294,8 @@ export function claudeTerminalProgress(task) {
         if (!scan.foundAt) {
           if (row.type !== 'user' || Date.parse(row.timestamp || '') < Date.parse(task.createdAt) - 5000) continue;
           const raw = contentText(row.message?.content);
-          if (isUsefulPrompt(raw) && clean(raw, 20000).startsWith(expected)) scan.foundAt = Date.parse(row.timestamp);
+          // The task's own prompt can be short ("ok", "copy"), so the usual 8-character floor does not apply here.
+          if (expected && isUsefulPrompt(raw, 0) && clean(raw, 20000).startsWith(expected)) scan.foundAt = Date.parse(row.timestamp);
           continue;
         }
         if (row.type === 'assistant') {
